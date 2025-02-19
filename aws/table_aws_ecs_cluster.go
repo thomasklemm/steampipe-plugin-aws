@@ -2,6 +2,8 @@ package aws
 
 import (
 	"context"
+	"fmt"
+	"strings" // Added for ARN parsing in the fix
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -269,6 +271,16 @@ func getEcsCluster(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateDa
 func getAwsEcsClusterTags(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
 
 	clusterArn := *h.Item.(types.Cluster).ClusterArn
+
+	// --- Start of Fix: Validate and reconstruct ARN explicitly ---
+	parts := strings.Split(clusterArn, ":")
+	if len(parts) != 6 || !strings.HasPrefix(parts[5], "cluster/") {
+		return nil, fmt.Errorf("invalid ARN format: %s", clusterArn)
+	}
+	baseArn := strings.Join(parts[:5], ":") + ":cluster/"
+	clusterName := strings.TrimPrefix(parts[5], "cluster/")
+	clusterArn = baseArn + clusterName // Reconstruct ARN explicitly
+	// --- End of Fix ---
 
 	// Create service
 	svc, err := ECSClient(ctx, d)
