@@ -3,7 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
-	"strings" // Added for ARN parsing in the fix
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -15,8 +15,6 @@ import (
 	"github.com/turbot/steampipe-plugin-sdk/v5/plugin"
 	"github.com/turbot/steampipe-plugin-sdk/v5/plugin/transform"
 )
-
-//// TABLE DEFINITION
 
 func tableAwsEcsCluster(_ context.Context) *plugin.Table {
 	return &plugin.Table{
@@ -144,7 +142,6 @@ func tableAwsEcsCluster(_ context.Context) *plugin.Table {
 				Hydrate:     getAwsEcsClusterTags,
 				Transform:   transform.FromField("Tags"),
 			},
-			// Standard columns
 			{
 				Name:        "title",
 				Description: resourceInterfaceDescription("title"),
@@ -169,17 +166,13 @@ func tableAwsEcsCluster(_ context.Context) *plugin.Table {
 	}
 }
 
-//// LIST FUNCTION
-
 func listEcsClusters(ctx context.Context, d *plugin.QueryData, _ *plugin.HydrateData) (interface{}, error) {
-	// Create Session
 	svc, err := ECSClient(ctx, d)
 	if err != nil {
 		plugin.Logger(ctx).Error("aws_ecs_cluster.listEcsClusters", "connection_error", err)
 		return nil, err
 	}
 
-	// Limiting the results
 	maxLimit := int32(100)
 	if d.QueryContext.Limit != nil {
 		limit := int32(*d.QueryContext.Limit)
@@ -201,9 +194,7 @@ func listEcsClusters(ctx context.Context, d *plugin.QueryData, _ *plugin.Hydrate
 		o.StopOnDuplicateToken = true
 	})
 
-	// List call
 	for paginator.HasMorePages() {
-		// apply rate limiting
 		d.WaitForListRateLimit(ctx)
 
 		output, err := paginator.NextPage(ctx)
@@ -217,7 +208,6 @@ func listEcsClusters(ctx context.Context, d *plugin.QueryData, _ *plugin.Hydrate
 				ClusterArn: aws.String(items),
 			})
 
-			// Context can be cancelled due to manual cancellation or the limit has been hit
 			if d.RowsRemaining(ctx) == 0 {
 				return nil, nil
 			}
@@ -227,10 +217,7 @@ func listEcsClusters(ctx context.Context, d *plugin.QueryData, _ *plugin.Hydrate
 	return nil, err
 }
 
-//// HYDRATE FUNCTIONS
-
 func getEcsCluster(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
-
 	var clusterArn string
 	if h.Item != nil {
 		clusterArn = *h.Item.(types.Cluster).ClusterArn
@@ -239,7 +226,6 @@ func getEcsCluster(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateDa
 		clusterArn = quals["cluster_arn"].GetStringValue()
 	}
 
-	// Create Session
 	svc, err := ECSClient(ctx, d)
 	if err != nil {
 		plugin.Logger(ctx).Error("aws_ecs_cluster.getEcsCluster", "connection_error", err)
@@ -269,20 +255,21 @@ func getEcsCluster(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateDa
 }
 
 func getAwsEcsClusterTags(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
+	if h.Item == nil {
+		plugin.Logger(ctx).Error("aws_ecs_cluster.getAwsEcsClusterTags", "hydrate_item_nil")
+		return nil, nil
+	}
 
 	clusterArn := *h.Item.(types.Cluster).ClusterArn
 
-	// --- Start of Fix: Validate and reconstruct ARN explicitly ---
 	parts := strings.Split(clusterArn, ":")
 	if len(parts) != 6 || !strings.HasPrefix(parts[5], "cluster/") {
 		return nil, fmt.Errorf("invalid ARN format: %s", clusterArn)
 	}
 	baseArn := strings.Join(parts[:5], ":") + ":cluster/"
 	clusterName := strings.TrimPrefix(parts[5], "cluster/")
-	clusterArn = baseArn + clusterName // Reconstruct ARN explicitly
-	// --- End of Fix ---
+	clusterArn = baseArn + clusterName
 
-	// Create service
 	svc, err := ECSClient(ctx, d)
 	if err != nil {
 		plugin.Logger(ctx).Error("aws_ecs_cluster.getAwsEcsClusterTags", "connection_error", err)
@@ -302,10 +289,7 @@ func getAwsEcsClusterTags(ctx context.Context, d *plugin.QueryData, h *plugin.Hy
 	return clusterdata, nil
 }
 
-//// TRANSFORM FUNCTIONS
-
-func getAwsEcsClusterTurbotTags(_ context.Context, d *transform.TransformData) (interface{},
-	error) {
+func getAwsEcsClusterTurbotTags(_ context.Context, d *transform.TransformData) (interface{}, error) {
 	ecsClusterTags := d.HydrateItem.(*ecs.ListTagsForResourceOutput)
 
 	if ecsClusterTags.Tags == nil {
